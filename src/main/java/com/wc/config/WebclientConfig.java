@@ -9,6 +9,7 @@ import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.handler.timeout.ReadTimeoutHandler;
 import io.netty.handler.timeout.WriteTimeoutHandler;
+import lombok.extern.slf4j.Slf4j;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
@@ -28,6 +29,7 @@ import java.util.concurrent.TimeUnit;
 
 
 @Configuration
+@Slf4j
 public class WebclientConfig {
     @Bean
     public WebClient webclient() throws SSLException {
@@ -72,7 +74,7 @@ public class WebclientConfig {
                 //add retry mechanism
                 .filter((request, next) -> next.exchange(request)
                         .retryWhen(Retry.backoff(3, Duration.ofSeconds(2))
-                                .doAfterRetry(retrySignal -> System.out.println("Retrying ..."))))
+                                .doAfterRetry(retrySignal -> log.info("Retrying ..."))))
                 //add circuit breaker
                 .filter((request, next) -> circuitBreaker.executeSupplier(() -> next.exchange(request)))
                 .build();

@@ -1,6 +1,12 @@
+##custom port
 server:
   port: 8081
-
+###enable debug logging
 logging:
   level:
     reactor.netty.http.client: DEBUG
+###Thread pool Size
+reactor:
+  netty:
+    pool:
+      max-connections: 500
