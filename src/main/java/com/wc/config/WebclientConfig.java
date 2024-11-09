@@ -94,7 +94,8 @@ public class WebclientConfig {
                                 .doAfterRetry(retrySignal -> log.info("Retrying ..."))))
                 //add circuit breaker
                 .filter((request, next) -> circuitBreaker.executeSupplier(() -> next.exchange(request)))
-                .codecs(configurer -> configurer.defaultCodecs().jackson2JsonDecoder(new Jackson2JsonDecoder(getObjectMapper())))
+                .codecs(configurer -> configurer.defaultCodecs()
+                        .jackson2JsonDecoder(new Jackson2JsonDecoder(getObjectMapper())))
                 .build();
 
         return client;
