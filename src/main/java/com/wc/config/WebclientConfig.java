@@ -1,5 +1,8 @@
 package com.wc.config;
 
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.netty.channel.ChannelOption;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
@@ -17,6 +20,7 @@ import org.springframework.web.reactive.function.client.*;
 import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
 import reactor.netty.resources.ConnectionProvider;
+import reactor.util.retry.Retry;
 
 import javax.net.ssl.SSLException;
 import java.time.Duration;
@@ -27,12 +31,14 @@ import java.util.concurrent.TimeUnit;
 public class WebclientConfig {
     @Bean
     public WebClient webclient() throws SSLException {
+        //ssl configuration
         SslContext sslContext = SslContextBuilder
                 .forClient()
                 //.keyManager()
                 //.trustManager()
-                .trustManager(InsecureTrustManagerFactory.INSTANCE)
+                .trustManager(InsecureTrustManagerFactory.INSTANCE)// disable SSL check for test code
                 .build();
+        //Connection pooling configuration
         ConnectionProvider connectionProvider = ConnectionProvider.builder("myConnectionPool")
                 .maxConnections(500)
                 .maxIdleTime(Duration.ofSeconds(20))
@@ -40,20 +46,35 @@ public class WebclientConfig {
                 .pendingAcquireTimeout(Duration.ofSeconds(60))
                 .evictInBackground(Duration.ofSeconds(120)).build();
 
+        //reactive HttpClient configuration
         HttpClient httpClient = HttpClient.create(connectionProvider)
+                //enable compression in HttpClient
+                .compress(true)
+                //enable logging of Http request and response
+                .wiretap(true)
                 .secure(sslContextSpec -> sslContextSpec.sslContext(sslContext))
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5000)
                 .responseTimeout(Duration.ofMillis(5000))
                 .doOnConnected(conn ->
                         conn.addHandlerLast(new ReadTimeoutHandler(5000, TimeUnit.MILLISECONDS))
                                 .addHandlerLast(new WriteTimeoutHandler(5000, TimeUnit.MILLISECONDS)));
+        //add default Circuit breaker configuration
+        CircuitBreaker circuitBreaker = CircuitBreakerRegistry.ofDefaults()
+                .circuitBreaker("myCircuitBreaker", CircuitBreakerConfig.ofDefaults());
 
 
         WebClient client = WebClient.builder()
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
-                .filter(logRequest())
-                .filter(logResponse())
+                .filter(logRequest()) //log request
+                .filter(logResponse()) //log response
+                //default header for each request
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                //add retry mechanism
+                .filter((request, next) -> next.exchange(request)
+                        .retryWhen(Retry.backoff(3, Duration.ofSeconds(2))
+                                .doAfterRetry(retrySignal -> System.out.println("Retrying ..."))))
+                //add circuit breaker
+                .filter((request, next) -> circuitBreaker.executeSupplier(() -> next.exchange(request)))
                 .build();
 
         return client;
@@ -72,6 +93,4 @@ public class WebclientConfig {
             return Mono.just(clientResponse);
         });
     }
-
-
 }
